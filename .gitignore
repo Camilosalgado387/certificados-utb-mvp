@@ -1,0 +1,23 @@
+# Carpetas locales del agente
+    .agents/
+    .superpowers/
+
+    # Backend (Python / FastAPI / SQLite / PDFs locales)
+    __pycache__/
+    *.py[cod]
+    backend/.venv/
+    .venv/
+    backend/utb_proto.db
+    backend/storage/certificados/*.pdf
+    !backend/storage/certificados/.gitkeep
+
+    # Frontend (Next.js)
+    frontend/node_modules/
+    frontend/.next/
+    frontend/out/
+
+    # Variables de entorno y sistema
+    .env
+    .env.*
+    .DS_Store
+    Thumbs.db
