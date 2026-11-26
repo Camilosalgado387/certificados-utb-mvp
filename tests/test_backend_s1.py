@@ -20,14 +20,25 @@ from app.models import CatalogItem, RequestItem  # noqa: E402
 from app.services.seed import DEMO_PROFILES, INITIAL_CATALOG, seed_catalog  # noqa: E402
 
 
-def asgi_get(target_app, path: str) -> tuple[int, dict | list]:
-    """Ejecuta una petición GET directa sobre la app ASGI sin requerir clientes HTTP externos."""
+def asgi_request(
+    target_app, path: str, method: str = "GET", json_body: dict | None = None
+) -> tuple[int, dict | list]:
+    """Ejecuta una petición HTTP directa sobre la app ASGI sin requerir clientes HTTP externos."""
+    raw_body = json.dumps(json_body).encode("utf-8") if json_body is not None else b""
+    headers = [(b"host", b"localhost:8000")]
+    if json_body is not None:
+        headers.append((b"content-type", b"application/json"))
 
     async def _call():
         messages = []
+        sent = False
 
         async def receive():
-            return {"type": "http.request", "body": b"", "more_body": False}
+            nonlocal sent
+            if not sent:
+                sent = True
+                return {"type": "http.request", "body": raw_body, "more_body": False}
+            return {"type": "http.disconnect"}
 
         async def send(message):
             messages.append(message)
@@ -36,12 +47,12 @@ def asgi_get(target_app, path: str) -> tuple[int, dict | list]:
             "type": "http",
             "asgi": {"version": "3.0"},
             "http_version": "1.1",
-            "method": "GET",
+            "method": method,
             "scheme": "http",
             "path": path,
             "raw_path": path.encode("utf-8"),
             "query_string": b"",
-            "headers": [(b"host", b"localhost:8000")],
+            "headers": headers,
             "client": ("127.0.0.1", 50000),
             "server": ("127.0.0.1", 8000),
         }
@@ -53,6 +64,10 @@ def asgi_get(target_app, path: str) -> tuple[int, dict | list]:
         return start["status"], json.loads(body.decode("utf-8"))
 
     return asyncio.run(_call())
+
+
+def asgi_get(target_app, path: str) -> tuple[int, dict | list]:
+    return asgi_request(target_app, path, method="GET")
 
 
 class TestBackendS1(unittest.TestCase):
@@ -149,6 +164,49 @@ class TestBackendS1(unittest.TestCase):
         self.assertEqual(roles, {"ESTUDIANTE", "TESORERIA", "REGISTRO", "DIRECCION"})
         titulares = {p["perfil_titular"] for p in profiles if p["rol"] == "ESTUDIANTE"}
         self.assertEqual(titulares, {"ESTUDIANTE", "EGRESADO"})
+
+    def test_create_request_multi_cart_and_48h(self):
+        with self.TestingSession() as db:
+            seed_catalog(db)
+
+        status_code, created = asgi_request(
+            app,
+            "/api/requests",
+            method="POST",
+            json_body={
+                "id_titular": "T00054321",
+                "nombre_titular": "Valentina Morales (Ing. de Sistemas)",
+                "perfil_titular": "ESTUDIANTE",
+                "catalog_item_ids": [1, 5],
+            },
+        )
+        self.assertEqual(status_code, 201)
+        self.assertEqual(created["total_cop"], 66500)
+        self.assertEqual(created["sla_max_dias"], 5)
+        self.assertEqual(created["estado"], "PENDIENTE_PAGO")
+        self.assertTrue(created["numero_radicado"].startswith("UTB-"))
+        self.assertTrue(created["referencia_pago"].startswith("REF-"))
+        self.assertEqual(len(created["items"]), 2)
+        self.assertEqual(len(created["notifications"]), 1)
+        self.assertEqual(created["notifications"][0]["tipo_hito"], "NOTIF_1_RADICADO")
+
+    def test_create_request_rejects_invalid_catalog_item(self):
+        with self.TestingSession() as db:
+            seed_catalog(db)
+
+        status_code, err = asgi_request(
+            app,
+            "/api/requests",
+            method="POST",
+            json_body={
+                "id_titular": "T00054321",
+                "nombre_titular": "Valentina Morales (Ing. de Sistemas)",
+                "perfil_titular": "ESTUDIANTE",
+                "catalog_item_ids": [999],
+            },
+        )
+        self.assertEqual(status_code, 400)
+        self.assertIn("999", err["detail"])
 
 
 if __name__ == "__main__":

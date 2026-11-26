@@ -1,6 +1,7 @@
 # Carpetas locales del agente
 .agents/
 .superpowers/
+skills-lock.json
 
 # Backend (Python / FastAPI / SQLite / PDFs locales)
 __pycache__/

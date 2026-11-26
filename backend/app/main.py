@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from .database import Base, engine, SessionLocal
 from . import models
-from .routers import catalog
+from .routers import catalog, requests
 from .services.seed import seed_catalog
 
 # Garantiza que la carpeta local para guardar PDFs siempre exista al arrancar
@@ -49,3 +49,4 @@ def health_check():
 
 
 app.include_router(catalog.router)
+app.include_router(requests.router)
